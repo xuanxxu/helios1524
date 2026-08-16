@@ -111,7 +111,8 @@
                         if (lambda > 0) {
                             gridK[r][c] -= (gridK[r][c] - BASE_K) * lambda;
                             if (gridK[r][c] <= BASE_K + 0.002) { gridK[r][c] = BASE_K; gridDamage[r][c] = 0; }
-                        }
+                        if (nr > 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+}
                     }
                     let left = (c > 0) ? gridT[r][c - 1] : gridT[r][c];
                     let right = (c < GRID_SIZE - 1) ? gridT[r][c + 1] : gridT[r][c];
