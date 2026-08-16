@@ -1,4 +1,4 @@
-<<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -26,7 +26,7 @@
         <h2>우주선 단열재 열전달 시뮬레이터</h2>
         <canvas id="simCanvas" width="350" height="350"></canvas>
         <div class="controls">
-            <div class="guide">👉 위쪽 빨간 영역부터 손가락으로 드래그해 구멍을 내보세요!</div>
+            <div class="guide">👉 손가락이나 마우스로 위에서 아래로 쓱 그어보세요!</div>
             <div class="control-group">
                 <label for="healSpeed">치유 속도:</label>
                 <select id="healSpeed">
@@ -54,8 +54,12 @@
     </div>
 
     <script>
-        const GRID_SIZE = 50, canvas = document.getElementById('simCanvas'), ctx = canvas.getContext('2d'), cellSize = canvas.width / GRID_SIZE;
+        const GRID_SIZE = 50;
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const cellSize = canvas.width / GRID_SIZE;
         const BASE_K = 0.015, CRACK_K = 0.4, DT = 0.15;
+
         let gridT = Array.from({ length: GRID_SIZE }, () => new Float32Array(GRID_SIZE).fill(20));
         let gridK = Array.from({ length: GRID_SIZE }, () => new Float32Array(GRID_SIZE).fill(BASE_K));
         let gridDamage = Array.from({ length: GRID_SIZE }, () => new Uint8Array(GRID_SIZE).fill(0));
@@ -63,8 +67,10 @@
 
         function initGrid() {
             for (let r = 0; r < GRID_SIZE; r++) {
-                gridT[r].fill(20); if (r === 0) gridT[r].fill(1500);
-                gridK[r].fill(BASE_K); gridDamage[r].fill(0);
+                gridT[r].fill(20);
+                if (r === 0) gridT[r].fill(1500);
+                gridK[r].fill(BASE_K);
+                gridDamage[r].fill(0);
             }
         }
 
@@ -75,7 +81,7 @@
             for (let dr = -2; dr <= 2; dr++) {
                 for (let dc = -2; dc <= 2; dc++) {
                     let nr = r + dr, nc = c + dc;
-                    if (nr > 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+                    if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
                         gridDamage[nr][nc] = 1;
                         gridK[nr][nc] = CRACK_K;
                     }
@@ -83,7 +89,6 @@
             }
         }
 
-        // 마우스 및 터치 이벤트 처리
         canvas.addEventListener('mousedown', (e) => { isTouching = true; damageAtPos(e.clientX, e.clientY); });
         canvas.addEventListener('mousemove', (e) => { if(isTouching) damageAtPos(e.clientX, e.clientY); });
         window.addEventListener('mouseup', () => isTouching = false);
@@ -101,18 +106,21 @@
 
         function loop() {
             const lambda = parseFloat(document.getElementById('healSpeed').value);
-            let nextT = gridT.map(row => new Float32Array(row)), hasDamage = false;
+            let nextT = gridT.map(row => new Float32Array(row));
+            let hasDamage = false;
 
-            for (let r = 1; r < GRID_SIZE; r++) {
+            for (let r = 0; r < GRID_SIZE; r++) {
                 for (let c = 0; c < GRID_SIZE; c++) {
                     if (r === 0) { gridT[r][c] = 1500; continue; }
                     if (gridDamage[r][c] === 1) {
                         hasDamage = true;
                         if (lambda > 0) {
                             gridK[r][c] -= (gridK[r][c] - BASE_K) * lambda;
-                            if (gridK[r][c] <= BASE_K + 0.002) { gridK[r][c] = BASE_K; gridDamage[r][c] = 0; }
-                        if (nr > 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
-}
+                            if (gridK[r][c] <= BASE_K + 0.002) {
+                                gridK[r][c] = BASE_K;
+                                gridDamage[r][c] = 0;
+                            }
+                        }
                     }
                     let left = (c > 0) ? gridT[r][c - 1] : gridT[r][c];
                     let right = (c < GRID_SIZE - 1) ? gridT[r][c + 1] : gridT[r][c];
@@ -136,9 +144,12 @@
                 }
             }
 
-            // 우주선 내부 온도 연산 (하단 평균)
             let sumTemp = 0;
-            for (let r = GRID_SIZE - 3; r < GRID_SIZE; r++) for (let c = 0; c < GRID_SIZE; c++) sumTemp += gridT[r][c];
+            for (let r = GRID_SIZE - 3; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    sumTemp += gridT[r][c];
+                }
+            }
             const avgTemp = (sumTemp / (GRID_SIZE * 3)).toFixed(1);
             const tempEl = document.getElementById('internalTemp');
             tempEl.innerText = `${avgTemp} ℃`;
@@ -146,7 +157,7 @@
 
             const statusEl = document.getElementById('statusText');
             if (hasDamage) {
-                statusEl.innerText = lambda > 0 ? "손상 발생! 치유 중..." : "손상 발생! (치유 안 됨 - 위험)";
+                statusEl.innerText = lambda > 0 ? "손상 발생! 치유 중..." : "손상 발생! (위험)";
                 statusEl.style.color = lambda > 0 ? "orange" : "red";
             } else {
                 statusEl.innerText = "정상 단열 중";
@@ -155,7 +166,9 @@
 
             requestAnimationFrame(loop);
         }
-        initGrid(); loop();
+
+        initGrid();
+        loop();
     </script>
 </body>
 </html>
