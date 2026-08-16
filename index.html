@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>우주선 자가치유 단열재 시뮬레이터 (키보드)</title>
+    <style>
+        body { font-family: '맑은 고딕', sans-serif; background: #f4f6f9; margin: 20px; text-align: center; }
+        .container { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        canvas { border: 3px solid #222; background: #000; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: center; width: 350px; text-align: left; }
+        .info-box { background: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 320px; }
+        button { padding: 8px 16px; font-weight: bold; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #218838; }
+        select { padding: 8px; font-size: 14px; border-radius: 4px; }
+        .key-guide { background: #333; color: white; padding: 10px; border-radius: 4px; font-size: 13px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>우주선 자가치유 단열재 열전달 시뮬레이터 (키보드)</h2>
+        
+        <canvas id="simCanvas" width="350" height="350"></canvas>
+        
+        <div class="controls">
+            <div class="key-guide">
+                <strong>키보드 조작 가이드:</strong><br>
+                - 이동: <span style="color:#28a745;">방향키 (↑, ↓, ←, →)</span><br>
+                - 균열(손상) 만들기: <span style="color:#28a745;">[공백키(Spacebar)]</span> 누름
+            </div>
+            <label><strong>자가치유 속도:</strong>
+                <select id="healSpeed">
+                    <option value="0">치유 안 됨 (일반 단열재)</option>
+                    <option value="0.02">천천히 치유</option>
+                    <option value="0.08" selected>빠르게 치유 (신소재)</option>
+                </select>
+            </label>
+            <button id="resetBtn">시뮬레이션 초기화</button>
+        </div>
+
+        <div class="info-box">
+            <p><strong>상단 표면 온도:</strong> <span style="color:red; font-weight:bold;">1500 ℃</span> (재진입열)</p>
+            <p><strong>우주선 내부 온도:</strong> <span id="internalTemp" style="font-size: 1.2em; font-weight: bold; color: blue;">20.0 ℃</span></p>
+            <p><strong>상태:</strong> <span id="statusText" style="font-weight: bold;">정상 단열 중</span></p>
+        </div>
+    </div>
+
+    <script>
+        const GRID_SIZE = 50; // 가로/세로 격자 칸 수
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const cellSize = canvas.width / GRID_SIZE; // 한 칸의 크기
+
+        const BASE_K = 0.015; // 정상 단열재 열전도율
+        const CRACK_K = 0.35;  // 균열 발생 시 열전도율 (열 침투 경로)
+
+        // 데이터를 저장하는 바둑판 배열들
+        let gridT; // 온도 저장
+        let gridK; // 열전도율 저장
+        let gridDamage; // 손상 여부 저장
+
+        // 키보드 조작 커서 위치
+        let cursorX = Math.floor(GRID_SIZE / 2);
+        let cursorY = Math.floor(GRID_SIZE / 2);
+        let spacePressed = false; // 공백키 눌림 상태
+
+        // 배열 초기화 함수
+        function initGrid() {
+            gridT = Array.from({ length: GRID_SIZE }, () => new Float32Array(GRID_SIZE).fill(20));
+            gridK = Array.from({ length: GRID_SIZE }, () => new Float32Array(GRID_SIZE).fill(BASE_K));
+            gridDamage = Array.from({ length: GRID_SIZE }, () => new Float32Array(GRID_SIZE).fill(0));
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                gridT[r].fill(20);
+                if (r === 0) gridT[r].fill(1500); // 상단 표면은 초고온 고정
+            }
+        }
+
+        // 특정 위치에 균열(손상)을 만드는 함수
+        function damageCell(c, r) {
+            const radius = 2; // 균열 범위 반지름
+
+            for (let dr = -radius; dr <= radius; dr++) {
+                for (let dc = -radius; dc <= radius; dc++) {
+                    let nr = r + dr;
+                    let nc = c + dc;
+                    // 단열재 경계를 벗어나지 않도록 확인
+                    if (nr > 2 && nr < GRID_SIZE - 2 && nc >= 0 && nc < GRID_SIZE) {
+                        gridDamage[nr][nc] = 1; // 손상 표시
+                        gridK[nr][nc] = CRACK_K; // 열전도율 급증
+                    }
+                }
+            }
+        }
+
+        // 키보드 입력 처리
+        window.addEventListener('keydown', (e) => {
+            // 시뮬레이션 버튼/선택창이 아닌 캔버스 영역 조작
+            if (document.activeElement.tagName === 'BODY' || document.activeElement.tagName === 'CANVAS') {
+                if (e.key === 'ArrowUp') { cursorY = Math.max(1, cursorY - 1); e.preventDefault(); }
+                if (e.key === 'ArrowDown') { cursorY = Math.min(GRID_SIZE - 1, cursorY + 1); e.preventDefault(); }
+                if (e.key === 'ArrowLeft') { cursorX = Math.max(0, cursorX - 1); e.preventDefault(); }
+                if (e.key === 'ArrowRight') { cursorX = Math.min(GRID_SIZE - 1, cursorX + 1); e.preventDefault(); }
+                if (e.key === ' ' || e.key === 'Spacebar') { spacePressed = true; e.preventDefault(); }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === ' ' || e.key === 'Spacebar') spacePressed = false;
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            initGrid();
+            canvas.focus(); // 초기화 후 캔버스에 포커스
+        });
+        
+        // 온도 -> 색상 변환 함수
+        function tempToColor(t) {
+            let norm = Math.min(Math.max((t - 20) / 1480, 0), 1);
+            let r, g, b;
+            if (norm < 0.25) {
+                r = 0; g = Math.floor(norm * 4 * 255); b = 255;
+            } else if (norm < 0.5) {
+                r = 0; g = 255; b = Math.floor((0.5 - norm) * 4 * 255);
+            } else if (norm < 0.75) {
+                r = Math.floor((norm - 0.5) * 4 * 255); g = 255; b = 0;
+            } else {
+                r = 255; g = Math.floor((1 - norm) * 4 * 255); b = 0;
+            }
+            return `rgb(${r},${g},${b})`;
+        }
+
+        // 매 프레임마다 호출되는 업데이트 및 그리기 함수
+        function loop() {
+            // 공백키가 눌려있으면 현재 커서 위치에 손상 적용
+            if (spacePressed) damageCell(cursorX, cursorY);
+
+            const lambda = parseFloat(document.getElementById('healSpeed').value);
+            let nextT = gridT.map(row => new Float32Array(row));
+            let hasDamage = false;
+
+            // 1. 자가치유 연산 및 열관리 데이터 업데이트
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    // 상단 표면 온도 고정
+                    if (r === 0) {
+                        gridT[r][c] = 1500;
+                        nextT[r][c] = 1500;
+                    }
+
+                    if (gridDamage[r][c] > 0) {
+                        hasDamage = true;
+                        if (lambda > 0) {
+                            gridK[r][c] -= (gridK[r][c] - BASE_K) * lambda; // 점진적 복원
+                            if (gridK[r][c] <= BASE_K + 0.001) {
+                                gridK[r][c] = BASE_K;
+                                gridDamage[r][c] = 0; // 치유 완료
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. 2D 열 확산 물리 연산 (유한차분법)
+            const dt = 0.15; // 시간 단계
+            for (let r = 1; r < GRID_SIZE - 1; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    let left = c > 0 ? gridT[r][c-1] : gridT[r][c];
+                    let right = c < GRID_SIZE - 1 ? gridT[r][c+1] : gridT[r][c];
+                    let top = gridT[r-1][c];
+                    let bottom = gridT[r+1][c];
+
+                    let k = gridK[r][c];
+                    // 라플라시안 필터 (주변 칸과의 온도 차이)
+                    let laplacian = (left + right + top + bottom - 4 * gridT[r][c]);
+                    nextT[r][c] = gridT[r][c] + k * laplacian * dt;
+                }
+            }
+            gridT = nextT;
+
+            // --- 그리기 ---
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    ctx.fillStyle = tempToColor(gridT[r][c]);
+                    ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+
+                    // 손상 영역 표시
+                    if (gridDamage[r][c] > 0) {
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                        ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+
+            // --- 키보드 커서 및 정보 UI 그리기 ---
+            
+            // 1. 커서 표시 (십자가 모양)
+            const cx = cursorX * cellSize + cellSize/2;
+            const cy = cursorY * cellSize + cellSize/2;
+            const cl = 10; // 커서 길이
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx - cl, cy); ctx.lineTo(cx + cl, cy);
+            ctx.moveTo(cx, cy - cl); ctx.lineTo(cx, cy + cl);
+            ctx.stroke();
+
+            // 2. 우주선 내부 온도 계산 및 UI 업데이트
+            let sumTemp = 0;
+            let count = 0;
+            for (let r = GRID_SIZE - 3; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    sumTemp += gridT[r][c]; count++;
+                }
+            }
+            const avgTemp = (sumTemp / count).toFixed(1);
+            const tempEl = document.getElementById('internalTemp');
+            tempEl.innerText = `${avgTemp} ℃`;
+            tempEl.style.color = avgTemp > 200 ? 'red' : (avgTemp > 80 ? 'orange' : 'blue');
+
+            let status = "정상 단열 중";
+            if (hasDamage) {
+                status = lambda > 0 ? "손상 발생! 자가치유 메우는 중..." : "손상 발생! (치유 안 됨 - 위험)";
+            }
+            document.getElementById('statusText').innerText = status;
+
+            requestAnimationFrame(loop); // 다음 프레임 루프
+        }
+
+        initGrid();
+        canvas.focus(); // 시작 시 캔버스에 포커스 설정
+        loop(); // 시뮬레이션 시작
+    </script>
+</body>
+</html>
