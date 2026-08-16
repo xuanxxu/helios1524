@@ -18,7 +18,7 @@
         .info-box { background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #eee; margin-top: 15px; }
         .info-item { margin: 6px 0; display: flex; justify-content: space-between; align-items: center; }
         .info-label { font-weight: bold; color: #666; font-size: 14px; }
-        .info-value { font-size: 1.1em; font-weight: bold; }
+        .info-value { font-size: 1.2em; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -26,20 +26,19 @@
         <h2>우주선 단열재 열전달 시뮬레이터</h2>
         <canvas id="simCanvas" width="350" height="350"></canvas>
         <div class="controls">
-            <div class="guide">👉 손가락이나 마우스로 위에서 아래로 쓱 그어보세요!</div>
+            <div class="guide">👉 위에서 아래로 연속해서 드래그해 길을 뚫어보세요!</div>
             <div class="control-group">
-                <label for="healSpeed">치유 속도:</label>
+                <label for="healSpeed">단열재 종류:</label>
                 <select id="healSpeed">
-                    <option value="0">치유 안 됨 (일반 단열재)</option>
-                    <option value="0.02">천천히 치유</option>
-                    <option value="0.08" selected>빠르게 치유 (신소재)</option>
+                    <option value="0">일반 단열재 (손상 지속)</option>
+                    <option value="0.05">자가치유 신소재 (즉시 복구)</option>
                 </select>
             </div>
             <button id="resetBtn">시뮬레이션 초기화</button>
         </div>
         <div class="info-box">
             <div class="info-item">
-                <span class="info-label">상단 표면 온도:</span>
+                <span class="info-label">대기권 재진입 표면열:</span>
                 <span class="info-value" style="color:red;">1500 ℃</span>
             </div>
             <div class="info-item">
@@ -47,8 +46,8 @@
                 <span id="internalTemp" class="info-value" style="color:blue;">20.0 ℃</span>
             </div>
             <div class="info-item">
-                <span class="info-label">상태:</span>
-                <span id="statusText" style="font-weight:bold; color:#28a745;">정상 단열 중</span>
+                <span class="info-label">구조 안전 상태:</span>
+                <span id="statusText" style="font-weight:bold; color:#28a745;">안전 (정상 단열)</span>
             </div>
         </div>
     </div>
@@ -58,7 +57,11 @@
         const canvas = document.getElementById('simCanvas');
         const ctx = canvas.getContext('2d');
         const cellSize = canvas.width / GRID_SIZE;
-        const BASE_K = 0.015, CRACK_K = 0.4, DT = 0.15;
+
+        // 현실적 물리 모사 반응 파라미터 (손상 시 열전달 폭증)
+        const BASE_K = 0.01;   // 정상 단열재 열전도율
+        const CRACK_K = 1.2;   // 균열 발생 시 열 직접 유입 (120배 상승)
+        const DT = 0.22;       // 열 확산 반응 속도 계수
 
         let gridT = Array.from({ length: GRID_SIZE }, () => new Float32Array(GRID_SIZE).fill(20));
         let gridK = Array.from({ length: GRID_SIZE }, () => new Float32Array(GRID_SIZE).fill(BASE_K));
@@ -112,16 +115,19 @@
             for (let r = 0; r < GRID_SIZE; r++) {
                 for (let c = 0; c < GRID_SIZE; c++) {
                     if (r === 0) { gridT[r][c] = 1500; continue; }
+                    
+                    // 자가치유 메커니즘
                     if (gridDamage[r][c] === 1) {
                         hasDamage = true;
                         if (lambda > 0) {
                             gridK[r][c] -= (gridK[r][c] - BASE_K) * lambda;
-                            if (gridK[r][c] <= BASE_K + 0.002) {
+                            if (gridK[r][c] <= BASE_K + 0.01) {
                                 gridK[r][c] = BASE_K;
                                 gridDamage[r][c] = 0;
                             }
                         }
                     }
+
                     let left = (c > 0) ? gridT[r][c - 1] : gridT[r][c];
                     let right = (c < GRID_SIZE - 1) ? gridT[r][c + 1] : gridT[r][c];
                     let top = gridT[r - 1][c];
@@ -138,12 +144,13 @@
                     ctx.fillStyle = tempToColor(gridT[r][c]);
                     ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
                     if (gridDamage[r][c] === 1) {
-                        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                         ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
                     }
                 }
             }
 
+            // 하단 3줄 평균 내부 온도 연산
             let sumTemp = 0;
             for (let r = GRID_SIZE - 3; r < GRID_SIZE; r++) {
                 for (let c = 0; c < GRID_SIZE; c++) {
@@ -153,15 +160,20 @@
             const avgTemp = (sumTemp / (GRID_SIZE * 3)).toFixed(1);
             const tempEl = document.getElementById('internalTemp');
             tempEl.innerText = `${avgTemp} ℃`;
-            tempEl.style.color = avgTemp > 200 ? 'red' : (avgTemp > 80 ? 'orange' : 'blue');
-
+            
             const statusEl = document.getElementById('statusText');
-            if (hasDamage) {
-                statusEl.innerText = lambda > 0 ? "손상 발생! 치유 중..." : "손상 발생! (위험)";
-                statusEl.style.color = lambda > 0 ? "orange" : "red";
+            if (avgTemp > 300) {
+                tempEl.style.color = '#dc3545';
+                statusEl.innerText = "위험 (기체 붕괴 수준 폭열!)";
+                statusEl.style.color = '#dc3545';
+            } else if (avgTemp > 80) {
+                tempEl.style.color = '#fd7e14';
+                statusEl.innerText = "경고 (내부 기기 손상 범위)";
+                statusEl.style.color = '#fd7e14';
             } else {
-                statusEl.innerText = "정상 단열 중";
-                statusEl.style.color = "#28a745";
+                tempEl.style.color = '#007bff';
+                statusEl.innerText = hasDamage ? "손상 복구 중..." : "안전 (정상 단열)";
+                statusEl.style.color = hasDamage ? '#ffc107' : '#28a745';
             }
 
             requestAnimationFrame(loop);
